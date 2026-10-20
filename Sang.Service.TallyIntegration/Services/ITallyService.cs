@@ -33,8 +33,11 @@ namespace Sang.Service.TallyIntegration.Services
             string baseUnits,
             CancellationToken cancellationToken = default);
 
-        Task<TallyVoucherResponse> PostTransaction(
+        Task<TallyVoucherResponse> PostXmlTransaction(
             TallyVoucherRequest request,
             CancellationToken cancellationToken = default);
+        Task<TallyVoucherResponse> PostJsonTransaction(
+             TallyVoucherJsonRequest request,
+             CancellationToken cancellationToken = default);
     }
 }

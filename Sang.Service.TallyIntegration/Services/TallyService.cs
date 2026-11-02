@@ -269,7 +269,7 @@ namespace Sang.Service.TallyIntegration.Services
         // POST VANSALES TRANSACTION TO TALLY
         // =========================================================
 
-        public Task<TallyVoucherResponse> PostTransaction(
+        public Task<TallyVoucherResponse> PostXmlTransaction(
             TallyVoucherRequest request,
             CancellationToken cancellationToken = default)
         {
@@ -279,6 +279,21 @@ namespace Sang.Service.TallyIntegration.Services
             }
 
             return _tallyTransactionService.PostTransaction(
+                request,
+                cancellationToken);
+        }
+
+
+        public Task<TallyVoucherResponse> PostJsonTransaction(
+    TallyVoucherJsonRequest request,
+    CancellationToken cancellationToken = default)
+        {
+            if (request == null)
+            {
+                throw new ArgumentNullException(nameof(request));
+            }
+
+            return _tallyTransactionService.PostJsonTransaction(
                 request,
                 cancellationToken);
         }
@@ -339,7 +354,7 @@ namespace Sang.Service.TallyIntegration.Services
 
         private string BuildExportRequest(string type, string id)
         {
-            var companyName = "TallySettings:CompanyName" ?? string.Empty;
+            var companyName = string.Empty;
 
             var companyXml = string.IsNullOrWhiteSpace(companyName)
                 ? string.Empty
@@ -373,7 +388,7 @@ namespace Sang.Service.TallyIntegration.Services
         // PRIVATE HELPER: SEND XML TO TALLY
         // =========================================================
 
-        private async Task<string> SendXml(string xml,CancellationToken cancellationToken)
+        private async Task<string> SendXml(string xml, CancellationToken cancellationToken)
         {
             var tallyUrl = "http://localhost:9000";
 

@@ -1,9 +1,11 @@
-﻿using Sang.Service.TallyIntegration.Models;
+using Sang.Service.TallyIntegration.Models;
+using Sang.Service.TallyIntegration.Enums;
 
 namespace Sang.Service.TallyIntegration.Services
 {
     public interface ITallyService
     {
+        // Get Masters
         Task<List<TallyLedgerDto>> GetLedgers(
             CancellationToken cancellationToken = default);
 
@@ -14,30 +16,29 @@ namespace Sang.Service.TallyIntegration.Services
             CancellationToken cancellationToken = default);
 
         Task<List<TallyMasterDto>> GetUnits(
-         CancellationToken cancellationToken = default);
+            CancellationToken cancellationToken = default);
 
+        // Get Company Details
         Task<string> GetCompanyDetails(
             CancellationToken cancellationToken = default);
 
+        // Get Vouchers
         Task<string> GetVouchers(
             CancellationToken cancellationToken = default);
 
-        Task<string> CreateLedger(
-            string name,
-            string parent,
+        // Common Master Creation (JSON / XML)
+        Task<TallyVoucherResponse> CreateMaster(
+            TallyMasterRequest request,
+            TallyFormat format,
             CancellationToken cancellationToken = default);
 
-        Task<string> CreateProduct(
-            string name,
-            string parent,
-            string baseUnits,
-            CancellationToken cancellationToken = default);
-
+        // Voucher Transactions
         Task<TallyVoucherResponse> PostXmlTransaction(
             TallyVoucherRequest request,
             CancellationToken cancellationToken = default);
+
         Task<TallyVoucherResponse> PostJsonTransaction(
-             TallyVoucherJsonRequest request,
-             CancellationToken cancellationToken = default);
+            TallyVoucherJsonRequest request,
+            CancellationToken cancellationToken = default);
     }
 }

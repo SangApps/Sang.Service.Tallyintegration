@@ -7,8 +7,5 @@ namespace Sang.Service.TallyIntegration.Services
         Task<TallyVoucherResponse> PostTransaction(
            TallyVoucherRequest request,
            CancellationToken cancellationToken = default);
-        Task<TallyVoucherResponse> PostJsonTransaction(
-            TallyVoucherJsonRequest request,
-            CancellationToken cancellationToken = default);
     }
 }

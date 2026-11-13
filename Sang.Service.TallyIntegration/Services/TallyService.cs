@@ -1,8 +1,11 @@
-﻿using Microsoft.Extensions.Logging;
+
+using Microsoft.Extensions.Logging;
+using Sang.Service.TallyIntegration.Enums;
 using Sang.Service.TallyIntegration.Models;
-using System.Security;
+using Sang.Service.TallyIntegration.Configurations;
 using System.Text;
 using System.Xml.Linq;
+using Sang.Service.TallyIntegration.Builders;
 
 namespace Sang.Service.TallyIntegration.Services
 {
@@ -10,17 +13,26 @@ namespace Sang.Service.TallyIntegration.Services
     {
         private readonly HttpClient _httpClient;
         private readonly ITallyTransactionService _tallyTransactionService;
+        private readonly TallyMasterJsonBuilder _jsonBuilder;
+        private readonly TallyMasterXmlBuilder _xmlBuilder;
         private readonly ILogger<TallyService> _logger;
 
+        private const string TallyUrl = "http://localhost:9000";
+
         public TallyService(
-                     IHttpClientFactory httpClientFactory,
-                     ITallyTransactionService tallyTransactionService,
-                     ILogger<TallyService> logger)
+            IHttpClientFactory httpClientFactory,
+            ITallyTransactionService tallyTransactionService,
+            TallyMasterJsonBuilder jsonBuilder,
+            TallyMasterXmlBuilder xmlBuilder,
+            ILogger<TallyService> logger)
         {
             _httpClient = httpClientFactory.CreateClient("TallyPrime");
             _tallyTransactionService = tallyTransactionService;
+            _jsonBuilder = jsonBuilder;
+            _xmlBuilder = xmlBuilder;
             _logger = logger;
         }
+
         // =========================================================
         // GET LEDGERS
         // =========================================================
@@ -38,17 +50,12 @@ namespace Sang.Service.TallyIntegration.Services
                 return masters.Select(x => new TallyLedgerDto
                 {
                     Name = x.Name,
-                    Parent = x.Parent,
-                    MasterId = x.MasterId,
-                    ClosingBalance = x.ClosingBalance
+                    Parent = x.Parent
                 }).ToList();
             }
             catch (Exception ex)
             {
-                _logger.LogError(
-                    ex,
-                    "Error retrieving Tally ledgers.");
-
+                _logger.LogError(ex, "Error retrieving Tally ledgers.");
                 throw;
             }
         }
@@ -84,13 +91,14 @@ namespace Sang.Service.TallyIntegration.Services
         // =========================================================
 
         public Task<List<TallyMasterDto>> GetUnits(
-     CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default)
         {
             return GetMasters(
                 "List of Units",
                 "UNIT",
                 cancellationToken);
         }
+
         // =========================================================
         // GET COMPANY DETAILS
         // =========================================================
@@ -100,13 +108,9 @@ namespace Sang.Service.TallyIntegration.Services
         {
             try
             {
-                var xml = BuildExportRequest(
-                    "DATA",
-                    "Company");
+                var xml = BuildExportRequest("DATA", "Company");
 
-                return await SendXml(
-                    xml,
-                    cancellationToken);
+                return await SendXml(xml, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -127,13 +131,9 @@ namespace Sang.Service.TallyIntegration.Services
         {
             try
             {
-                var xml = BuildExportRequest(
-                    "COLLECTION",
-                    "Day Book");
+                var xml = BuildExportRequest("COLLECTION", "Day Book");
 
-                return await SendXml(
-                    xml,
-                    cancellationToken);
+                return await SendXml(xml, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -146,152 +146,74 @@ namespace Sang.Service.TallyIntegration.Services
         }
 
         // =========================================================
-        // CREATE LEDGER
+        // CREATE MASTER - XML / JSON
         // =========================================================
 
-        public async Task<string> CreateLedger(
-            string name,
-            string parent,
+        public async Task<TallyVoucherResponse> CreateMaster(
+            TallyMasterRequest request,
+            TallyFormat format,
             CancellationToken cancellationToken = default)
         {
-            ValidateRequired(name, nameof(name));
-            ValidateRequired(parent, nameof(parent));
+            ValidateMasterRequest(request);
 
-            try
+            var payload = format switch
             {
-                var escapedName = EscapeXml(name);
-                var escapedParent = EscapeXml(parent);
+                TallyFormat.Xml => _xmlBuilder.Build(request),
 
-                var xml = $"""
-                    <ENVELOPE>
-                        <HEADER>
-                            <VERSION>1</VERSION>
-                            <TALLYREQUEST>IMPORT</TALLYREQUEST>
-                            <TYPE>DATA</TYPE>
-                            <ID>All Masters</ID>
-                        </HEADER>
-                        <BODY>
-                            <IMPORTDATA>
-                                <REQUESTDESC>
-                                    <REPORTNAME>All Masters</REPORTNAME>
-                                </REQUESTDESC>
-                                <REQUESTDATA>
-                                    <TALLYMESSAGE xmlns:UDF="TallyUDF">
-                                        <LEDGER NAME="{escapedName}" ACTION="Create">
-                                            <NAME>{escapedName}</NAME>
-                                            <PARENT>{escapedParent}</PARENT>
-                                        </LEDGER>
-                                    </TALLYMESSAGE>
-                                </REQUESTDATA>
-                            </IMPORTDATA>
-                        </BODY>
-                    </ENVELOPE>
-                    """;
+                TallyFormat.Json => _jsonBuilder.Build(request),
 
-                return await SendXml(
-                    xml,
-                    cancellationToken);
-            }
-            catch (Exception ex)
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(format),
+                    format,
+                    "Unsupported Tally format. Use Xml or Json.")
+            };
+
+            var response = format switch
             {
-                _logger.LogError(
-                    ex,
-                    "Error creating Tally ledger {LedgerName}.",
-                    name);
+                TallyFormat.Xml => await SendXml(
+                    payload,
+                    cancellationToken),
 
-                throw;
-            }
+                TallyFormat.Json => await SendJson(
+                    payload,
+                    "All Masters",
+                    cancellationToken),
+
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(format))
+            };
+
+            // Use the shared parser for both XML and JSON.
+            return TallyImportResponseParser.Parse(
+                response,
+                format,
+                $"{request.MasterType} '{request.Master.Name}'");
         }
 
         // =========================================================
-        // CREATE PRODUCT / STOCK ITEM
-        // =========================================================
-
-        public async Task<string> CreateProduct(
-            string name,
-            string parent,
-            string baseUnits,
-            CancellationToken cancellationToken = default)
-        {
-            ValidateRequired(name, nameof(name));
-            ValidateRequired(parent, nameof(parent));
-            ValidateRequired(baseUnits, nameof(baseUnits));
-
-            try
-            {
-                var escapedName = EscapeXml(name);
-                var escapedParent = EscapeXml(parent);
-                var escapedUnits = EscapeXml(baseUnits);
-
-                var xml = $"""
-                    <ENVELOPE>
-                        <HEADER>
-                            <VERSION>1</VERSION>
-                            <TALLYREQUEST>IMPORT</TALLYREQUEST>
-                            <TYPE>DATA</TYPE>
-                            <ID>All Masters</ID>
-                        </HEADER>
-                        <BODY>
-                            <IMPORTDATA>
-                                <REQUESTDESC>
-                                    <REPORTNAME>All Masters</REPORTNAME>
-                                </REQUESTDESC>
-                                <REQUESTDATA>
-                                    <TALLYMESSAGE xmlns:UDF="TallyUDF">
-                                        <STOCKITEM NAME="{escapedName}" ACTION="Create">
-                                            <NAME>{escapedName}</NAME>
-                                            <PARENT>{escapedParent}</PARENT>
-                                            <BASEUNITS>{escapedUnits}</BASEUNITS>
-                                        </STOCKITEM>
-                                    </TALLYMESSAGE>
-                                </REQUESTDATA>
-                            </IMPORTDATA>
-                        </BODY>
-                    </ENVELOPE>
-                    """;
-
-                return await SendXml(
-                    xml,
-                    cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(
-                    ex,
-                    "Error creating Tally stock item {ProductName}.",
-                    name);
-
-                throw;
-            }
-        }
-
-        // =========================================================
-        // POST VANSALES TRANSACTION TO TALLY
+        // POST XML TRANSACTION
         // =========================================================
 
         public Task<TallyVoucherResponse> PostXmlTransaction(
             TallyVoucherRequest request,
             CancellationToken cancellationToken = default)
         {
-            if (request == null)
-            {
-                throw new ArgumentNullException(nameof(request));
-            }
+            ArgumentNullException.ThrowIfNull(request);
 
             return _tallyTransactionService.PostTransaction(
                 request,
                 cancellationToken);
         }
 
+        // =========================================================
+        // POST JSON TRANSACTION
+        // =========================================================
 
         public Task<TallyVoucherResponse> PostJsonTransaction(
-    TallyVoucherJsonRequest request,
-    CancellationToken cancellationToken = default)
+            TallyVoucherJsonRequest request,
+            CancellationToken cancellationToken = default)
         {
-            if (request == null)
-            {
-                throw new ArgumentNullException(nameof(request));
-            }
+            ArgumentNullException.ThrowIfNull(request);
 
             return _tallyTransactionService.PostJsonTransaction(
                 request,
@@ -326,14 +248,9 @@ namespace Sang.Service.TallyIntegration.Services
                     {
                         Name = GetValue(x, "NAME") is { Length: > 0 } name
                             ? name
-                            : (string?)x.Attribute("NAME")
-                                ?? string.Empty,
+                            : (string?)x.Attribute("NAME") ?? string.Empty,
 
-                        Parent = GetValue(x, "PARENT"),
-                        MasterId = GetValue(x, "MASTERID"),
-                        BaseUnits = GetValue(x, "BASEUNITS"),
-                        OpeningBalance = GetValue(x, "OPENINGBALANCE"),
-                        ClosingBalance = GetValue(x, "CLOSINGBALANCE")
+                        Parent = GetValue(x, "PARENT")
                     })
                     .ToList();
             }
@@ -354,56 +271,92 @@ namespace Sang.Service.TallyIntegration.Services
 
         private string BuildExportRequest(string type, string id)
         {
-            var companyName = string.Empty;
-
-            var companyXml = string.IsNullOrWhiteSpace(companyName)
-                ? string.Empty
-                : $"""
-            <SVCURRENTCOMPANY>
-                {EscapeXml(companyName)}
-            </SVCURRENTCOMPANY>
-            """;
-
-            return $"""
-        <ENVELOPE>
-            <HEADER>
-                <VERSION>1</VERSION>
-                <TALLYREQUEST>EXPORT</TALLYREQUEST>
-                <TYPE>{EscapeXml(type)}</TYPE>
-                <ID>{EscapeXml(id)}</ID>
-            </HEADER>
-            <BODY>
-                <DESC>
-                    <STATICVARIABLES>
-                        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-                        {companyXml}
-                    </STATICVARIABLES>
-                </DESC>
-            </BODY>
-        </ENVELOPE>
-        """;
+            return new XDocument(
+                new XElement("ENVELOPE",
+                    new XElement("HEADER",
+                        new XElement("VERSION", "1"),
+                        new XElement("TALLYREQUEST", "EXPORT"),
+                        new XElement("TYPE", type),
+                        new XElement("ID", id)
+                    ),
+                    new XElement("BODY",
+                        new XElement("DESC",
+                            new XElement("STATICVARIABLES",
+                                new XElement(
+                                    "SVEXPORTFORMAT",
+                                    "$$SysName:XML")
+                            )
+                        )
+                    )
+                )
+            ).ToString();
         }
 
         // =========================================================
         // PRIVATE HELPER: SEND XML TO TALLY
         // =========================================================
 
-        private async Task<string> SendXml(string xml, CancellationToken cancellationToken)
+        private async Task<string> SendXml(
+            string xml,
+            CancellationToken cancellationToken)
         {
-            var tallyUrl = "http://localhost:9000";
-
             using var content = new StringContent(
                 xml,
                 Encoding.UTF8,
                 "text/xml");
 
             using var response = await _httpClient.PostAsync(
-                tallyUrl,
+                TallyUrl,
                 content,
                 cancellationToken);
 
             var responseBody = await response.Content.ReadAsStringAsync(
                 cancellationToken);
+
+            response.EnsureSuccessStatusCode();
+
+            return responseBody;
+        }
+
+        // =========================================================
+        // PRIVATE HELPER: SEND JSON TO TALLY
+        // =========================================================
+
+        private async Task<string> SendJson(
+            string json,
+            string requestId,
+            CancellationToken cancellationToken)
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                TallyUrl);
+
+            // Required TallyPrime JSON integration headers.
+            request.Headers.TryAddWithoutValidation("version", "1");
+            request.Headers.TryAddWithoutValidation("tallyrequest", "Import");
+            request.Headers.TryAddWithoutValidation("type", "Data");
+            request.Headers.TryAddWithoutValidation("id", requestId);
+
+            request.Content = new StringContent(
+                json,
+                Encoding.UTF8,
+                "application/json");
+
+            using var response = await _httpClient.SendAsync(
+                request,
+                cancellationToken);
+
+            var responseBody = await response.Content.ReadAsStringAsync(
+                cancellationToken);
+
+            _logger.LogInformation(
+                "Tally JSON request completed. RequestId: {RequestId}, StatusCode: {StatusCode}",
+                requestId,
+                response.StatusCode);
+
+            _logger.LogInformation(
+                "Tally JSON response: {Response}",
+                responseBody);
 
             response.EnsureSuccessStatusCode();
 
@@ -425,29 +378,40 @@ namespace Sang.Service.TallyIntegration.Services
         }
 
         // =========================================================
-        // PRIVATE HELPER: XML ESCAPING
+        // PRIVATE HELPER: VALIDATE MASTER REQUEST
         // =========================================================
 
-        private static string EscapeXml(string value)
+        private static void ValidateMasterRequest(
+            TallyMasterRequest request)
         {
-            return SecurityElement.Escape(value)
-                ?? string.Empty;
-        }
+            ArgumentNullException.ThrowIfNull(request);
 
-        // =========================================================
-        // PRIVATE HELPER: VALIDATION
-        // =========================================================
+            // CompanyName is optional.
+            // If empty, Tally uses the currently open company.
 
-        private static void ValidateRequired(
-            string value,
-            string parameterName)
-        {
-            if (string.IsNullOrWhiteSpace(value))
+            if (string.IsNullOrWhiteSpace(request.MasterType))
             {
                 throw new ArgumentException(
-                    $"{parameterName} is required.",
-                    parameterName);
+                    "MasterType is required.");
             }
+
+            if (request.Master == null)
+            {
+                throw new ArgumentException(
+                    "Master details are required.");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Master.Name))
+            {
+                throw new ArgumentException(
+                    "Master name is required.");
+            }
+
+            request.Master.ExtraFields ??=
+                new Dictionary<string, object?>();
+
+            // Validate supported master type.
+            TallyMasterRegistry.Get(request.MasterType);
         }
     }
 }

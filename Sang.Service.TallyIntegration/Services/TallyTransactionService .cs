@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Text.Json;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using Sang.Service.TallyIntegration.Builders;
@@ -32,11 +33,6 @@ namespace Sang.Service.TallyIntegration.Services
         {
             ArgumentNullException.ThrowIfNull(request);
 
-<<<<<<< Updated upstream
-            try
-            {
-                var tallyUrl = "http://localhost:9000";
-=======
             if (string.IsNullOrWhiteSpace(request.VoucherXml))
             {
                 return new TallyVoucherResponse
@@ -52,78 +48,28 @@ namespace Sang.Service.TallyIntegration.Services
             {
                 // Validate XML before sending.
                 XDocument.Parse(request.VoucherXml);
->>>>>>> Stashed changes
 
-                // VoucherXml temporarily contains the raw JSONEx payload.
-                var voucherJson = request.VoucherXml;
+                _logger.LogInformation(
+                    "========== TALLY XML REQUEST ==========");
 
-<<<<<<< Updated upstream
-                if (string.IsNullOrWhiteSpace(voucherJson))
-                {
-                    throw new ArgumentException(
-                        "Tally JSONEx request body is required.",
-                        nameof(request));
-                }
-
-                using var httpRequest = new HttpRequestMessage(
-                    HttpMethod.Post,
-                    tallyUrl);
-
-                // JSONEx requires application/json.
-                httpRequest.Content = new StringContent(
-                    voucherJson,
-=======
                 _logger.LogInformation(
                     "{VoucherXml}",
                     request.VoucherXml);
 
                 using var content = new StringContent(
                     request.VoucherXml,
->>>>>>> Stashed changes
                     Encoding.UTF8,
-                    "application/json");
+                    "text/xml");
 
-<<<<<<< Updated upstream
-                // TallyPrime JSONEx headers.
-                httpRequest.Headers.TryAddWithoutValidation(
-                    "version", "1");
-
-                httpRequest.Headers.TryAddWithoutValidation(
-                    "tallyrequest", "Import");
-
-                httpRequest.Headers.TryAddWithoutValidation(
-                    "type", "Data");
-
-                httpRequest.Headers.TryAddWithoutValidation(
-                    "id", "Vouchers");
-
-                httpRequest.Headers.TryAddWithoutValidation(
-                    "detailed-response", "Yes");
-
-                _logger.LogInformation(
-                    "Sending JSONEx transaction to TallyPrime at {TallyUrl}.",
-                    tallyUrl);
-
-                using var response = await _httpClient.SendAsync(
-                    httpRequest,
-=======
                 using var response = await _httpClient.PostAsync(
                     TallyUrl,
                     content,
->>>>>>> Stashed changes
                     cancellationToken);
 
                 var responseBody = await response.Content.ReadAsStringAsync(
                     cancellationToken);
 
                 _logger.LogInformation(
-<<<<<<< Updated upstream
-                    "TallyPrime returned HTTP {StatusCode}.",
-                    (int)response.StatusCode);
-
-                // HTTP success does not necessarily mean that
-                // Tally imported the voucher successfully.
-=======
                     "Tally XML HTTP Status: {StatusCode}",
                     (int)response.StatusCode);
 
@@ -134,7 +80,6 @@ namespace Sang.Service.TallyIntegration.Services
                     "{Response}",
                     responseBody);
 
->>>>>>> Stashed changes
                 if (!response.IsSuccessStatusCode)
                 {
                     return new TallyVoucherResponse
@@ -144,114 +89,6 @@ namespace Sang.Service.TallyIntegration.Services
                         Result = null,
                         Message =
                             $"Tally HTTP error: {(int)response.StatusCode} " +
-<<<<<<< Updated upstream
-                            $"{response.ReasonPhrase}",
-                        ResponseXml = responseBody
-                    };
-                }
-
-                var message = "Tally response received.";
-                var success = true;
-
-                if (string.IsNullOrWhiteSpace(responseBody))
-                {
-                    success = false;
-                    message = "Tally returned an empty response.";
-                }
-                else if (responseBody.Contains(
-                    "Unknown Request",
-                    StringComparison.OrdinalIgnoreCase))
-                {
-                    success = false;
-                    message =
-                        "Tally rejected the request: Unknown Request. " +
-                        "Verify the JSONEx payload and HTTP headers.";
-                }
-                else
-                {
-                    // Check XML-style Tally responses when present.
-                    try
-                    {
-                        if (responseBody.TrimStart().StartsWith(
-                            "<",
-                            StringComparison.Ordinal))
-                        {
-                            var document = XDocument.Parse(responseBody);
-
-                            var errors = document
-                                .Descendants()
-                                .Where(x =>
-                                    x.Name.LocalName.Equals(
-                                        "LINEERROR",
-                                        StringComparison.OrdinalIgnoreCase))
-                                .Select(x => x.Value.Trim())
-                                .Where(x => !string.IsNullOrWhiteSpace(x))
-                                .ToList();
-
-                            if (errors.Count > 0)
-                            {
-                                success = false;
-                                message = string.Join("; ", errors);
-                            }
-                            else
-                            {
-                                var created = document
-                                    .Descendants()
-                                    .FirstOrDefault(x =>
-                                        x.Name.LocalName.Equals(
-                                            "CREATED",
-                                            StringComparison.OrdinalIgnoreCase))
-                                    ?.Value;
-
-                                var altered = document
-                                    .Descendants()
-                                    .FirstOrDefault(x =>
-                                        x.Name.LocalName.Equals(
-                                            "ALTERED",
-                                            StringComparison.OrdinalIgnoreCase))
-                                    ?.Value;
-
-                                var exceptions = document
-                                    .Descendants()
-                                    .FirstOrDefault(x =>
-                                        x.Name.LocalName.Equals(
-                                            "EXCEPTIONS",
-                                            StringComparison.OrdinalIgnoreCase))
-                                    ?.Value;
-
-                                if (int.TryParse(exceptions, out var count)
-                                    && count > 0)
-                                {
-                                    success = false;
-                                    message =
-                                        $"Tally reported {count} exception(s).";
-                                }
-                                else if (created != null || altered != null)
-                                {
-                                    message =
-                                        $"Tally response received. " +
-                                        $"Created: {created ?? "N/A"}, " +
-                                        $"Altered: {altered ?? "N/A"}.";
-                                }
-                            }
-                        }
-                    }
-                    catch (System.Xml.XmlException)
-                    {
-                        // JSONEx may return a non-XML response.
-                        // Preserve the response for inspection.
-                        message =
-                            "Tally response received. Review the response " +
-                            "body to confirm the import result.";
-                    }
-                }
-
-                return new TallyVoucherResponse
-                {
-                    Success = success,
-                    Message = message,
-                    ResponseXml = responseBody
-=======
                             $"{response.ReasonPhrase}"
                     };
                 }
@@ -273,7 +110,6 @@ namespace Sang.Service.TallyIntegration.Services
                     Code = 400,
                     Result = null,
                     Message = $"Invalid voucher XML: {ex.Message}"
->>>>>>> Stashed changes
                 };
             }
             catch (OperationCanceledException)
@@ -289,9 +125,6 @@ namespace Sang.Service.TallyIntegration.Services
                     ex,
                     "Error posting XML transaction to Tally.");
 
-<<<<<<< Updated upstream
-                throw;
-=======
                 return new TallyVoucherResponse
                 {
                     Success = false,
@@ -431,7 +264,6 @@ namespace Sang.Service.TallyIntegration.Services
                     Result = null,
                     Message = "An error occurred while posting the JSON transaction to Tally."
                 };
->>>>>>> Stashed changes
             }
         }
     }

@@ -1,4 +1,6 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Sang.Service.TallyIntegration.Enums;
 using Sang.Service.TallyIntegration.Models;
@@ -106,6 +108,18 @@ namespace Sang.Service.TallyIntegration.Builders
             }
         }
 
+
+        // Tally sometimes returns "vchnumber": ABC-001 without quotes (invalid JSON).
+        private static readonly Regex UnquotedVchNumber = new(
+            "(\"vchnumber\"\\s*:\\s*)(?!\")([^\\r\\n,}]+?)(\\s*[\\r\\n,}])",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static string FixTallyJson(string body) =>
+            UnquotedVchNumber.Replace(body, m =>
+                m.Groups[1].Value + "\"" +
+                JsonEncodedText.Encode(m.Groups[2].Value.Trim()).ToString() + "\"" +
+                m.Groups[3].Value);
+
         // =====================================================
         // FAILURE RESPONSE
         // =====================================================
@@ -208,7 +222,7 @@ namespace Sang.Service.TallyIntegration.Builders
 
             var lineErrors = new List<string>();
 
-            Walk(JsonNode.Parse(body), found, lineErrors);
+            Walk(JsonNode.Parse(FixTallyJson(body)), found, lineErrors);
 
             int? Num(string name)
             {

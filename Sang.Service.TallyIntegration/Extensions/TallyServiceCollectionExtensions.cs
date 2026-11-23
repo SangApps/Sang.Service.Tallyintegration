@@ -20,14 +20,11 @@ namespace Sang.Service.TallyIntegration.Extensions
 
             services.TryAddSingleton<TallyMasterJsonBuilder>();
             services.TryAddSingleton<TallyMasterXmlBuilder>();
+            services.TryAddSingleton<TallyVoucherJsonBuilder>();          
 
-            services.TryAddScoped<
-                ITallyTransactionService,
-                TallyTransactionService>();
-
-            services.TryAddScoped<
-                ITallyService,
-                TallyService>();
+            services.TryAddScoped<ITallyTransactionService,TallyTransactionService>();
+            services.TryAddScoped<ITallyService,TallyService>();
+            services.TryAddScoped<ITallyVoucherService,TallyVoucherService>();
 
             return services;
         }

@@ -225,10 +225,13 @@ namespace Sang.Service.TallyIntegration.Services
                     };
                 }
 
-                return TallyImportResponseParser.Parse(
+                var parsed = TallyImportResponseParser.Parse(
                     responseBody,
                     TallyFormat.Json,
                     $"Voucher TransId: {request.TransId}");
+
+                parsed.RawResponse = responseBody;
+                return parsed;
             }
             catch (JsonException ex)
             {

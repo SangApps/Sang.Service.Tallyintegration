@@ -40,5 +40,21 @@ namespace Sang.Service.TallyIntegration.Services
         Task<TallyVoucherResponse> PostJsonTransaction(
             TallyVoucherJsonRequest request,
             CancellationToken cancellationToken = default);
+        Task<TallyVoucherApiResponse> CreateSales(
+    SalesVoucherRequest request,
+    CancellationToken cancellationToken = default);
+        Task<TallyVoucherApiResponse> CreateReceipt(
+        ReceiptVoucherRequest request,
+        CancellationToken cancellationToken = default);
+        Task<TallyVoucherApiResponse> CreateSalesOrder(
+       SalesOrderVoucherRequest request,
+       CancellationToken cancellationToken = default);
+
+        Task<TallyVoucherApiResponse> CreateSalesReturn(
+        SalesReturnVoucherRequest request,
+        CancellationToken cancellationToken = default);
+
+
+
     }
 }
